@@ -116,6 +116,7 @@ pub struct App {
     pub screen_ok: bool,
     pub screen_checked: Instant,
     pub focus_studio: bool,
+    pub shots: Option<crate::shots::Shots>,
 }
 
 impl App {
@@ -209,6 +210,7 @@ impl App {
             screen_ok: capture::has_screen_access(),
             screen_checked: Instant::now(),
             focus_studio: false,
+            shots: crate::shots::Shots::from_env(),
         }
     }
 
@@ -391,7 +393,8 @@ impl App {
         let size = egui::vec2(300.0, 520.0);
         let (dx, dy, dw, dh) = capture::display_at(cx, cy);
         let x = (cx as f32 - size.x / 2.0).clamp(dx as f32 + 8.0, (dx + dw) as f32 - size.x - 8.0);
-        let y = (cy as f32 - 40.0).clamp(dy as f32 + 30.0, (dy + dh) as f32 - size.y - 8.0);
+        // 32 more for the title bar, which isn't part of the inner size.
+        let y = (cy as f32 - 40.0).clamp(dy as f32 + 30.0, (dy + dh) as f32 - size.y - 40.0);
         self.picker_pos = egui::pos2(x, y);
         self.picker_open = true;
         self.picker_fresh = true;
@@ -485,6 +488,8 @@ impl eframe::App for App {
             self.handle(m, ctx);
         }
 
+        self.drive_shots(ctx);
+
         if self.screen_checked.elapsed() > Duration::from_secs(2) {
             self.screen_ok = capture::has_screen_access();
             self.screen_checked = Instant::now();
@@ -497,7 +502,7 @@ impl eframe::App for App {
         }
 
         // The root window is hidden; keep it painting so child windows are driven.
-        let any = self.studio_open || self.picker_open || self.loupe.is_some() || self.flash.is_some();
+        let any = self.shots.is_some() || self.studio_open || self.picker_open || self.loupe.is_some() || self.flash.is_some();
         if any {
             ctx.send_viewport_cmd(ViewportCommand::RequestPaintWhileHidden);
         }

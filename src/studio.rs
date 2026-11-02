@@ -25,6 +25,7 @@ impl App {
             if focus {
                 ui.send_viewport_cmd(ViewportCommand::Focus);
             }
+            self.shots_focus(ui);
             if ui.input(|i| i.viewport().close_requested()) {
                 close = true;
             }
@@ -595,6 +596,8 @@ impl App {
                         .corner_radius(10)
                         .inner_margin(Margin::same(12))
                         .show(ui, |ui| {
+                          // The frame inherits the row's horizontal layout; stack its contents instead.
+                          ui.vertical(|ui| {
                             ui.set_width((ui.available_width() - 16.0).max(10.0));
                             ui.horizontal(|ui| {
                                 ui.add(egui::TextEdit::singleline(&mut p.name).desired_width(220.0));
@@ -619,6 +622,7 @@ impl App {
                             if let Some(a) = strip(ui, &p.colors, 62.0, None, true) {
                                 act = Some(a);
                             }
+                          });
                         });
                 });
             }

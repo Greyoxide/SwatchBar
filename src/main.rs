@@ -11,6 +11,7 @@ mod loupe;
 mod mockups;
 mod picker;
 mod preview;
+mod shots;
 mod store;
 mod studio;
 mod theme;
