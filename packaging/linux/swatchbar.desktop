@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Swatchbar
+Comment=Color sampler and palette builder
+Exec=swatchbar
+Icon=swatchbar
+Categories=Graphics;Utility;
+Terminal=false
