@@ -7,6 +7,7 @@ use crate::app::Msg;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, OnceLock};
+use std::thread::Thread;
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{
     ButtonIndex, ConnectionExt as _, EventMask, GrabMode, GrabStatus, KeyButMask, Window,
@@ -16,10 +17,15 @@ use x11rb::rust_connection::RustConnection;
 
 static SAMPLING: AtomicBool = AtomicBool::new(false);
 static GRABBED: AtomicBool = AtomicBool::new(false);
+/// The fallback poller, parked whenever we aren't sampling.
+static POLLER: OnceLock<Thread> = OnceLock::new();
 static LINK: OnceLock<(Arc<RustConnection>, Window)> = OnceLock::new();
 
 pub fn set_sampling(on: bool) {
     SAMPLING.store(on, Ordering::SeqCst);
+    if let Some(t) = POLLER.get() {
+        t.unpark();
+    }
     let Some((conn, root)) = LINK.get() else { return };
     if on {
         let mask = EventMask::BUTTON_PRESS | EventMask::BUTTON_RELEASE;
@@ -68,9 +74,17 @@ pub fn install(tx: Sender<Msg>, ctx: egui::Context) {
     }
 
     // Fallback when the grab was refused: watch the physical left button.
-    std::thread::spawn(move || {
+    let h = std::thread::spawn(move || {
         let mut prev = false;
         loop {
+            // Idle without waking the CPU until sampling starts.
+            if !SAMPLING.load(Ordering::SeqCst) {
+                while !SAMPLING.load(Ordering::SeqCst) {
+                    std::thread::park();
+                }
+                // A button already held when sampling began isn't a click.
+                prev = true;
+            }
             std::thread::sleep(std::time::Duration::from_millis(8));
             let Some(r) = conn.query_pointer(root).ok().and_then(|c| c.reply().ok()) else { continue };
             let down = u16::from(r.mask) & u16::from(KeyButMask::BUTTON1) != 0;
@@ -81,4 +95,5 @@ pub fn install(tx: Sender<Msg>, ctx: egui::Context) {
             prev = down;
         }
     });
+    let _ = POLLER.set(h.thread().clone());
 }

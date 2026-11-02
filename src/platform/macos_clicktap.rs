@@ -10,12 +10,16 @@ use core_graphics::event::{
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::mpsc::Sender;
+use std::sync::OnceLock;
+use std::thread::Thread;
 
 static SAMPLING: AtomicBool = AtomicBool::new(false);
 static SWALLOW_UP: AtomicBool = AtomicBool::new(false);
 /// 0 = no tap, 1 = listen-only, 2 = can swallow clicks.
 static MODE: AtomicU8 = AtomicU8::new(0);
 static PROMPTED: AtomicBool = AtomicBool::new(false);
+/// The button poller, parked whenever we aren't sampling.
+static POLLER: OnceLock<Thread> = OnceLock::new();
 
 #[link(name = "ApplicationServices", kind = "framework")]
 unsafe extern "C" {
@@ -26,6 +30,9 @@ unsafe extern "C" {
 
 pub fn set_sampling(on: bool) {
     SAMPLING.store(on, Ordering::SeqCst);
+    if let Some(t) = POLLER.get() {
+        t.unpark();
+    }
     if on && MODE.load(Ordering::SeqCst) < 2 {
         prompt_accessibility();
     }
@@ -49,9 +56,17 @@ pub fn install(tx: Sender<Msg>, ctx: egui::Context) {
     // Needs no permission: watch the physical button so a click always picks, even if the tap is unavailable.
     {
         let (tx, ctx) = (tx.clone(), ctx.clone());
-        std::thread::spawn(move || {
+        let h = std::thread::spawn(move || {
             let mut prev = false;
             loop {
+                // Idle without waking the CPU until sampling starts.
+                if !SAMPLING.load(Ordering::SeqCst) {
+                    while !SAMPLING.load(Ordering::SeqCst) {
+                        std::thread::park();
+                    }
+                    // A button already held when sampling began isn't a click.
+                    prev = unsafe { CGEventSourceButtonState(1, 0) };
+                }
                 std::thread::sleep(std::time::Duration::from_millis(8));
                 let down = unsafe { CGEventSourceButtonState(1, 0) };
                 // The tap reports clicks itself when it can; this covers the no-permission case.
@@ -63,6 +78,7 @@ pub fn install(tx: Sender<Msg>, ctx: egui::Context) {
                 prev = down;
             }
         });
+        let _ = POLLER.set(h.thread().clone());
     }
     std::thread::spawn(move || {
         let events = vec![
